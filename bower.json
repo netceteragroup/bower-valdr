@@ -1,0 +1,5 @@
+{
+  "name": "valdr",
+  "version": "0.0.1-alpha",
+  "main": "./valdr.js"
+}
