@@ -15,7 +15,8 @@ angular.module('valdr')
                             '{{ violation.message }}' +
                           '</div>',
       translateTemplate = '<div class="valdr-message">' +
-                            '<span translate="{{ violation.message }}" ' +
+                            '<span ng-if="violation" ' +
+                            'translate="{{ violation.message }}" ' +
                             'translate-values="violation"></span>' +
                           '</div>';
 
@@ -125,7 +126,8 @@ angular.module('valdr')
         var updateTranslations = function () {
           if (valdrMessage.translateAvailable && angular.isArray(scope.violations)) {
             angular.forEach(scope.violations, function (violation) {
-              valdrMessage.$translate(violation.field).then(function (translation) {
+              var fieldNameKey = violation.type + '.' + violation.field;
+              valdrMessage.$translate(fieldNameKey).then(function (translation) {
                 violation.fieldName = translation;
               });
             });

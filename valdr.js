@@ -1,5 +1,5 @@
 /**
- * valdr - v0.0.1-alpha-2 - 2014-04-03
+ * valdr - v0.1.0 - 2014-04-07
  * https://github.com/netceteragroup/valdr
  * Copyright (c) 2014 Netcetera AG
  * License: MIT
@@ -12,14 +12,15 @@ angular.module('valdr', ['ng'])
     'revalidate': 'valdr-revalidate'
   })
   .value('valdrClasses', {
-    'valid': 'has-success',
-    'invalid': 'has-error'
+    valid: 'has-success',
+    invalid: 'has-error',
+    dirtyBlurred: 'dirty-blurred'
   });
 angular.module('valdr')
 
-  /**
-   * Exposes utility functions used in validators and valdr core.
-   */
+/**
+ * Exposes utility functions used in validators and valdr core.
+ */
   .factory('valdrUtil', function () {
     return {
 
@@ -41,17 +42,23 @@ angular.module('valdr')
 
       /**
        * @param value the value
-       * @returns {boolean} true if the given value is not null, not undefined, not an empty string and not NaN
+       * @returns {boolean} true if the given value is not null, not undefined, not an empty string, NaN returns false
        */
       notEmpty: function (value) {
-        return angular.isDefined(value) && value !== '' && value !== null && !this.isNaN(value);
+        if (this.isNaN(value)) {
+          return false;
+        }
+        return angular.isDefined(value) && value !== '' && value !== null;
       },
 
       /**
        * @param value the value to validate
-       * @returns {boolean} true if the given value is null, undefined, an empty string or NaN
+       * @returns {boolean} true if the given value is null, undefined, an empty string, NaN returns false
        */
       isEmpty: function (value) {
+        if (this.isNaN(value)) {
+          return false;
+        }
         return !this.notEmpty(value);
       }
     };
@@ -93,8 +100,12 @@ angular.module('valdr')
         var minValue = Number(constraint.value),
             valueAsNumber = Number(value);
 
-        return valdrUtil.isEmpty(value) ||
-            (!valdrUtil.isNaN(valueAsNumber) && valueAsNumber >= minValue);
+
+        if (valdrUtil.isNaN(value)) {
+          return false;
+        }
+
+        return valdrUtil.isEmpty(value) || valueAsNumber >= minValue;
       }
     };
   }]);
@@ -117,8 +128,11 @@ angular.module('valdr')
         var maxValue = Number(constraint.value),
             valueAsNumber = Number(value);
 
-        return valdrUtil.isEmpty(value) ||
-            (!valdrUtil.isNaN(valueAsNumber) && valueAsNumber <= maxValue);
+        if (valdrUtil.isNaN(value)) {
+          return false;
+        }
+
+        return valdrUtil.isEmpty(value) || valueAsNumber <= maxValue;
       }
     };
   }]);
@@ -171,6 +185,147 @@ angular.module('valdr')
 
 angular.module('valdr')
 
+  .factory('digitsValidator', ['valdrUtil', function (valdrUtil) {
+
+    var decimalSeparator = 1.1.toLocaleString().substring(1, 2); // jshint ignore:line
+
+    var removeAnythingButDigitsAndDecimalSeparator = function (value) {
+      var regex = new RegExp('[^' + decimalSeparator + '\\d]', 'g');
+      // at this point 'value' can still be a number or a string or...
+      return value.toString().replace(regex, '');
+    };
+
+    var isNotLongerThan = function (valueAsString, maxLengthConstraint) {
+      return !valueAsString ? true : valueAsString.length <= maxLengthConstraint;
+    };
+
+    var doValidate = function (value, constraint) {
+      var integerConstraint = constraint.integer,
+        fractionConstraint = constraint.fraction,
+        cleanValueAsString, integerAndFraction;
+
+      cleanValueAsString = removeAnythingButDigitsAndDecimalSeparator(value);
+      integerAndFraction = cleanValueAsString.split(decimalSeparator);
+
+      return isNotLongerThan(integerAndFraction[0], integerConstraint) &&
+        isNotLongerThan(integerAndFraction[1], fractionConstraint);
+    };
+
+    return {
+      name: 'Digits',
+
+      /**
+       * Checks if the value is a number within accepted range.
+       *
+       * @param value the value to validate
+       * @param constraint the validation constraint, it is expected to have integer and fraction properties (maximum
+       *                   number of integral/fractional digits accepted for this number)
+       * @returns {boolean} true if valid
+       */
+      validate: function (value, constraint) {
+
+        if (valdrUtil.isEmpty(value)) {
+          return true;
+        }
+        if (valdrUtil.isNaN(Number(value))) {
+          return false;
+        }
+
+        return doValidate(value, constraint);
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
+  .factory('pastValidator', ['futureAndPastSharedValidator', function (futureAndPastSharedValidator) {
+
+    return {
+      name: 'Past',
+
+      /**
+       * Checks if the value is a date in the past.
+       *
+       * @param value the value to validate
+       * @returns {boolean} true if empty, null, undefined or a date in the past, false otherwise
+       */
+      validate: function (value) {
+        return futureAndPastSharedValidator.validate(value, function (valueAsMoment, now) {
+          return valueAsMoment.isBefore(now);
+        });
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
+  .factory('futureValidator', ['futureAndPastSharedValidator', function (futureAndPastSharedValidator) {
+
+    return {
+      name: 'Future',
+
+      /**
+       * Checks if the value is a date in the future.
+       *
+       * @param value the value to validate
+       * @returns {boolean} true if empty, null, undefined or a date in the future, false otherwise
+       */
+      validate: function (value) {
+
+        return futureAndPastSharedValidator.validate(value, function (valueAsMoment, now) {
+          return valueAsMoment.isAfter(now);
+        });
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
+  .factory('patternValidator', ['valdrUtil', function (valdrUtil) {
+
+    var REGEXP_PATTERN = /^\/(.*)\/([gim]*)$/;
+
+    /**
+     * Converts the given pattern to a RegExp.
+     * The pattern can either be a RegExp object or a string containing a regular expression (`/regexp/`).
+     * This implementation is based on the AngularJS ngPattern validator.
+     * @param pattern the pattern
+     * @returns {RegExp} the RegExp
+     */
+    var asRegExp = function (pattern) {
+      var match;
+
+      if (pattern.test) {
+        return pattern;
+      } else {
+        match = pattern.match(REGEXP_PATTERN);
+        if (match) {
+          return new RegExp(match[1], match[2]);
+        } else {
+          throw ('Expected ' + pattern + ' to be a RegExp');
+        }
+      }
+    };
+
+    return {
+      name: 'Pattern',
+
+      /**
+       * Checks if the value matches the pattern defined in the constraint.
+       *
+       * @param value the value to validate
+       * @param constraint the constraint with the regexp as value
+       * @returns {boolean} true if valid
+       */
+      validate: function (value, constraint) {
+        var pattern = asRegExp(constraint.value);
+        return valdrUtil.isEmpty(value) || pattern.test(value);
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
   .provider('valdr', function () {
 
     var constraints = {}, validators = {}, constraintUrl, constraintsLoading, constraintAliases = {},
@@ -179,7 +334,9 @@ angular.module('valdr')
         'sizeValidator',
         'minValidator',
         'maxValidator',
-        'emailValidator'
+        'emailValidator',
+        'digitsValidator',
+        'patternValidator'
       ];
 
     var addConstraints = function (newConstraints) {
@@ -264,6 +421,7 @@ angular.module('valdr')
                 var violation = {
                   value: value,
                   field: fieldName,
+                  type: typeName,
                   validator: validatorName
                 };
                 angular.extend(violation, constraint);
@@ -302,21 +460,14 @@ angular.module('valdr')
    */
   .directive('valdrType', function () {
     return  {
-      controller: function() {
-        var type;
-
-        this.setType = function (newType) {
-          type = newType;
-        };
+      priority: 1,
+      controller: ['$attrs', function($attrs) {
 
         this.getType = function () {
-          return type;
+          return $attrs.valdrType;
         };
-      },
-      priority: 1,
-      link: function (scope, element, attrs, controller) {
-        controller.setType(attrs.valdrType);
-      }
+
+      }]
     };
   });
 
@@ -370,6 +521,12 @@ angular.module('valdr')
 
         scope.$on(valdrEvents.revalidate, function () {
           validate(ngModelController.$viewValue);
+        });
+
+        element.bind('blur', function () {
+          if (ngModelController.$invalid && ngModelController.$dirty) {
+            parentElement.addClass(valdrClasses.dirtyBlurred);
+          }
         });
       }
     };
