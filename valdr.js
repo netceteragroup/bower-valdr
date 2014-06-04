@@ -1,5 +1,5 @@
 /**
- * valdr - v0.1.1 - 2014-04-17
+ * valdr - v0.2.0 - 2014-06-04
  * https://github.com/netceteragroup/valdr
  * Copyright (c) 2014 Netcetera AG
  * License: MIT
@@ -14,14 +14,15 @@ angular.module('valdr', ['ng'])
   .value('valdrClasses', {
     valid: 'has-success',
     invalid: 'has-error',
-    dirtyBlurred: 'dirty-blurred'
+    dirtyBlurred: 'dirty-blurred',
+    formGroup: 'form-group'
   });
 angular.module('valdr')
 
 /**
  * Exposes utility functions used in validators and valdr core.
  */
-  .factory('valdrUtil', function () {
+  .factory('valdrUtil', ['valdrClasses', function (valdrClasses) {
     return {
 
       isNaN: function (value) {
@@ -60,15 +61,33 @@ angular.module('valdr')
           return false;
         }
         return !this.notEmpty(value);
+      },
+
+      /**
+       * Finds the parent element with the class defined in valdrClasses.formGroup. Only searches 3 levels above
+       * the given element. If no element is found with this class, returns the parent of the given element.
+       * @param element the element
+       * @returns {*} the wrapping form group
+       */
+      findWrappingFormGroup: function (element) {
+        var parent = element.parent();
+        for (var i = 0; i < 3; i++) {
+          if (parent.hasClass(valdrClasses.formGroup)) {
+            return parent;
+          } else {
+            parent = parent.parent();
+          }
+        }
+        return element.parent();
       }
     };
-  })
+  }])
 ;
 angular.module('valdr')
 
-  .factory('requiredValidator', ['valdrUtil', function (valdrUtil) {
+  .factory('valdrRequiredValidator', ['valdrUtil', function (valdrUtil) {
     return {
-      name: 'Required',
+      name: 'required',
 
       /**
        * Checks if the value is not empty.
@@ -84,10 +103,10 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('minValidator', ['valdrUtil', function (valdrUtil) {
+  .factory('valdrMinValidator', ['valdrUtil', function (valdrUtil) {
 
     return {
-      name: 'Min',
+      name: 'min',
 
       /**
        * Checks if the value is a number and higher or equal as the value specified in the constraint.
@@ -98,7 +117,7 @@ angular.module('valdr')
        */
       validate: function (value, constraint) {
         var minValue = Number(constraint.value),
-            valueAsNumber = Number(value);
+          valueAsNumber = Number(value);
 
 
         if (valdrUtil.isNaN(value)) {
@@ -112,10 +131,10 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('maxValidator', ['valdrUtil', function (valdrUtil) {
+  .factory('valdrMaxValidator', ['valdrUtil', function (valdrUtil) {
 
     return {
-      name: 'Max',
+      name: 'max',
 
       /**
        * Checks if the value is a number and lower or equal as the value specified in the constraint.
@@ -126,7 +145,7 @@ angular.module('valdr')
        */
       validate: function (value, constraint) {
         var maxValue = Number(constraint.value),
-            valueAsNumber = Number(value);
+          valueAsNumber = Number(value);
 
         if (valdrUtil.isNaN(value)) {
           return false;
@@ -139,9 +158,9 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('sizeValidator', function () {
+  .factory('valdrSizeValidator', function () {
     return {
-      name: 'Size',
+      name: 'size',
 
       /**
        * Checks if the values length is in the range specified by the constraints min and max properties.
@@ -163,13 +182,13 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('emailValidator', ['valdrUtil', function (valdrUtil) {
+  .factory('valdrEmailValidator', ['valdrUtil', function (valdrUtil) {
 
     // the e-mail pattern used in angular.js
     var EMAIL_REGEXP = /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]+@[a-z0-9-]+(\.[a-z0-9-]+)*$/i;
 
     return {
-      name: 'Email',
+      name: 'email',
 
       /**
        * Checks if the value is a valid email address.
@@ -185,7 +204,29 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('digitsValidator', ['valdrUtil', function (valdrUtil) {
+  .factory('valdrUrlValidator', ['valdrUtil', function (valdrUtil) {
+
+    // the url pattern used in angular.js
+    var URL_REGEXP = /^(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?$/;
+
+    return {
+      name: 'url',
+
+      /**
+       * Checks if the value is a valid url.
+       *
+       * @param value the value to validate
+       * @returns {boolean} true if valid
+       */
+      validate: function (value) {
+        return valdrUtil.isEmpty(value) || URL_REGEXP.test(value);
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
+  .factory('valdrDigitsValidator', ['valdrUtil', function (valdrUtil) {
 
     var decimalSeparator = 1.1.toLocaleString().substring(1, 2); // jshint ignore:line
 
@@ -212,7 +253,7 @@ angular.module('valdr')
     };
 
     return {
-      name: 'Digits',
+      name: 'digits',
 
       /**
        * Checks if the value is a number within accepted range.
@@ -238,10 +279,35 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('pastValidator', ['futureAndPastSharedValidator', function (futureAndPastSharedValidator) {
+  .factory('futureAndPastSharedValidator', ['valdrUtil', function (valdrUtil) {
+
+    var someAlternativeDateFormats = ['D-M-YYYY', 'D.M.YYYY', 'D/M/YYYY', 'D. M. YYYY', 'YYYY.M.D'];
 
     return {
-      name: 'Past',
+      validate: function (value, comparison) {
+        var now = moment(), valueAsMoment;
+
+        if (valdrUtil.isEmpty(value)) {
+          return true;
+        }
+
+        valueAsMoment = moment(value);
+
+        for (var i = 0; i < someAlternativeDateFormats.length && !valueAsMoment.isValid(); i++) {
+          valueAsMoment = moment(value, someAlternativeDateFormats[i], true);
+        }
+
+        return valueAsMoment.isValid() && comparison(valueAsMoment, now);
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
+  .factory('valdrPastValidator', ['futureAndPastSharedValidator', function (futureAndPastSharedValidator) {
+
+    return {
+      name: 'past',
 
       /**
        * Checks if the value is a date in the past.
@@ -259,10 +325,10 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('futureValidator', ['futureAndPastSharedValidator', function (futureAndPastSharedValidator) {
+  .factory('valdrFutureValidator', ['futureAndPastSharedValidator', function (futureAndPastSharedValidator) {
 
     return {
-      name: 'Future',
+      name: 'future',
 
       /**
        * Checks if the value is a date in the future.
@@ -281,7 +347,7 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('patternValidator', ['valdrUtil', function (valdrUtil) {
+  .factory('valdrPatternValidator', ['valdrUtil', function (valdrUtil) {
 
     var REGEXP_PATTERN = /^\/(.*)\/([gim]*)$/;
 
@@ -308,7 +374,7 @@ angular.module('valdr')
     };
 
     return {
-      name: 'Pattern',
+      name: 'pattern',
 
       /**
        * Checks if the value matches the pattern defined in the constraint.
@@ -326,17 +392,121 @@ angular.module('valdr')
 
 angular.module('valdr')
 
+  .factory('valdrMinLengthValidator', ['valdrUtil', function (valdrUtil) {
+    return {
+      name: 'minLength',
+
+      /**
+       * Checks if the value is a string and if it's at least 'constraint.number' of characters long.
+       *
+       * @param value the value to validate
+       * @param constraint with property 'number'
+       * @returns {boolean} true if valid
+       */
+      validate: function (value, constraint) {
+        var minLength = constraint.number;
+
+        if (valdrUtil.isEmpty(value)) {
+          return minLength === 0;
+        }
+
+        if (typeof value === 'string') {
+          return value.length >= minLength;
+        } else {
+          return false;
+        }
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
+  .factory('valdrMaxLengthValidator', ['valdrUtil', function (valdrUtil) {
+    return {
+      name: 'maxLength',
+
+      /**
+       * Checks if the value is a string and if it's at most 'constraint.number' of characters long.
+       *
+       * @param value the value to validate
+       * @param constraint with property 'number'
+       * @returns {boolean} true if valid
+       */
+      validate: function (value, constraint) {
+        var maxLength = constraint.number;
+
+        if (valdrUtil.isEmpty(value)) {
+          return true;
+        }
+
+        if (typeof value === 'string') {
+          return value.length <= maxLength;
+        } else {
+          return false;
+        }
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
+  .factory('valdrHibernateEmailValidator', ['valdrUtil', function (valdrUtil) {
+    var ATOM = '[a-z0-9!#$%&\'*+/=?^_`{|}~-]';
+    var DOMAIN = '^' + ATOM + '+(\\.' + ATOM + '+)*$';
+    var IP_DOMAIN = '^\\[[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\]$';
+
+    var localPattern = new RegExp('^' + ATOM + '+(\\.' + ATOM + '+)*$', 'i');
+    var domainPattern = new RegExp(DOMAIN + '|' + IP_DOMAIN, 'i');
+
+    return {
+      name: 'hibernateEmail',
+
+      /**
+       * Checks if the value is a valid email address using the same patterns as Hibernate uses in its bean validation
+       * implementation.
+       *
+       * @param value the value to validate
+       * @returns {boolean} true if valid
+       */
+      validate: function (value) {
+        if (valdrUtil.isEmpty(value)) {
+          return true;
+        }
+
+        // split email at '@' and consider local and domain part separately
+        var emailParts = value.split('@');
+        if (emailParts.length !== 2) {
+          return false;
+        }
+
+        if (!localPattern.test(emailParts[0])) {
+          return false;
+        }
+
+        return domainPattern.test(emailParts[1]);
+      }
+    };
+  }]);
+
+angular.module('valdr')
+
   .provider('valdr', function () {
 
     var constraints = {}, validators = {}, constraintUrl, constraintsLoading, constraintAliases = {},
       validatorNames = [
-        'requiredValidator',
-        'sizeValidator',
-        'minValidator',
-        'maxValidator',
-        'emailValidator',
-        'digitsValidator',
-        'patternValidator'
+        'valdrRequiredValidator',
+        'valdrSizeValidator',
+        'valdrMinLengthValidator',
+        'valdrMaxLengthValidator',
+        'valdrMinValidator',
+        'valdrMaxValidator',
+        'valdrEmailValidator',
+        'valdrUrlValidator',
+        'valdrDigitsValidator',
+        'valdrFutureValidator',
+        'valdrPastValidator',
+        'valdrPatternValidator',
+        'valdrHibernateEmailValidator'
       ];
 
     var addConstraints = function (newConstraints) {
@@ -359,109 +529,109 @@ angular.module('valdr')
 
     this.$get =
       ['$log', '$injector', '$rootScope', '$http', 'valdrEvents', 'valdrUtil', 'valdrClasses',
-      function($log, $injector, $rootScope, $http, valdrEvents, valdrUtil, valdrClasses) {
+        function ($log, $injector, $rootScope, $http, valdrEvents, valdrUtil, valdrClasses) {
 
-      // inject all validators
-      angular.forEach(validatorNames, function(validatorName) {
-        var validator = $injector.get(validatorName);
-        var constraintName = constraintAliases[validator.name] || validator.name;
-        validators[constraintName] = validator;
-      });
+          // inject all validators
+          angular.forEach(validatorNames, function (validatorName) {
+            var validator = $injector.get(validatorName);
+            var constraintName = constraintAliases[validator.name] || validator.name;
+            validators[constraintName] = validator;
+          });
 
-      // load constraints via $http if constraintUrl is configured
-      if (constraintUrl) {
-        constraintsLoading = true;
-        $http.get(constraintUrl).then(function (response) {
-          constraintsLoading = false;
-          addConstraints(response.data);
-          $rootScope.$broadcast(valdrEvents.revalidate);
-        }).finally(function () {
-          constraintsLoading = false;
-        });
-      }
+          // load constraints via $http if constraintUrl is configured
+          if (constraintUrl) {
+            constraintsLoading = true;
+            $http.get(constraintUrl).then(function (response) {
+              constraintsLoading = false;
+              addConstraints(response.data);
+              $rootScope.$broadcast(valdrEvents.revalidate);
+            })['finally'](function () {
+              constraintsLoading = false;
+            });
+          }
 
-      var constraintsForType = function (type) {
-        if (valdrUtil.has(constraints, type)) {
-          return constraints[type];
-        } else if (!constraintsLoading) {
-          $log.warn('No constraints for type \'' + type + '\' available.');
-        }
-      };
+          var constraintsForType = function (type) {
+            if (valdrUtil.has(constraints, type)) {
+              return constraints[type];
+            } else if (!constraintsLoading) {
+              $log.warn('No constraints for type \'' + type + '\' available.');
+            }
+          };
 
-      return {
-        /**
-         * Validates the value of the given type with the constraints for the given field name.
-         *
-         * @param typeName the type name
-         * @param fieldName the field name
-         * @param value the value to validate
-         * @returns {*}
-         */
-        validate: function (typeName, fieldName, value) {
+          return {
+            /**
+             * Validates the value of the given type with the constraints for the given field name.
+             *
+             * @param typeName the type name
+             * @param fieldName the field name
+             * @param value the value to validate
+             * @returns {*}
+             */
+            validate: function (typeName, fieldName, value) {
 
-          var validResult = { valid: true },
-              typeConstraints = constraintsForType(typeName);
+              var validResult = { valid: true },
+                typeConstraints = constraintsForType(typeName);
 
-          if (valdrUtil.has(typeConstraints, fieldName)) {
-            var fieldConstraints = typeConstraints[fieldName],
-                fieldIsValid = true,
-                violations = [];
+              if (valdrUtil.has(typeConstraints, fieldName)) {
+                var fieldConstraints = typeConstraints[fieldName],
+                  fieldIsValid = true,
+                  violations = [];
 
-            angular.forEach(fieldConstraints, function (constraint, validatorName) {
-              var validator = validators[validatorName];
+                angular.forEach(fieldConstraints, function (constraint, validatorName) {
+                  var validator = validators[validatorName];
 
-              if (angular.isUndefined(validator)) {
-                $log.warn('No validator defined for \'' + validatorName +
-                  '\'. Can not validate field \'' + fieldName + '\'');
+                  if (angular.isUndefined(validator)) {
+                    $log.warn('No validator defined for \'' + validatorName +
+                      '\'. Can not validate field \'' + fieldName + '\'');
+                    return validResult;
+                  }
+
+                  var valid = validator.validate(value, constraint);
+                  if (!valid) {
+                    var violation = {
+                      value: value,
+                      field: fieldName,
+                      type: typeName,
+                      validator: validatorName
+                    };
+                    angular.extend(violation, constraint);
+                    violations.push(violation);
+                  }
+                  fieldIsValid = fieldIsValid && valid;
+                });
+
+                return {
+                  valid: fieldIsValid,
+                  violations: violations.length === 0 ? undefined : violations
+                };
+              } else {
                 return validResult;
               }
-
-              var valid = validator.validate(value, constraint);
-              if (!valid) {
-                var violation = {
-                  value: value,
-                  field: fieldName,
-                  type: typeName,
-                  validator: validatorName
-                };
-                angular.extend(violation, constraint);
-                violations.push(violation);
-              }
-              fieldIsValid = fieldIsValid && valid;
-            });
-
-            return {
-              valid: fieldIsValid,
-              violations: violations.length === 0 ? undefined : violations
-            };
-          } else {
-            return validResult;
-          }
-        },
-        addConstraints: function (newConstraints) {
-          addConstraints(newConstraints);
-          $rootScope.$broadcast(valdrEvents.revalidate);
-        },
-        getConstraints: function () {
-          return constraints;
-        },
-        setClasses: function (newClasses) {
-          angular.extend(valdrClasses, newClasses);
-          $rootScope.$broadcast(valdrEvents.revalidate);
-        }
-      };
-    }];
+            },
+            addConstraints: function (newConstraints) {
+              addConstraints(newConstraints);
+              $rootScope.$broadcast(valdrEvents.revalidate);
+            },
+            getConstraints: function () {
+              return constraints;
+            },
+            setClasses: function (newClasses) {
+              angular.extend(valdrClasses, newClasses);
+              $rootScope.$broadcast(valdrEvents.revalidate);
+            }
+          };
+        }];
   });
 angular.module('valdr')
 
-  /**
-   * The valdrType directive defines the type of the model to be validated.
-   * The directive exposes the type through the controller to allow access to it by wrapped directives.
-   */
+/**
+ * The valdrType directive defines the type of the model to be validated.
+ * The directive exposes the type through the controller to allow access to it by wrapped directives.
+ */
   .directive('valdrType', function () {
     return  {
       priority: 1,
-      controller: ['$attrs', function($attrs) {
+      controller: ['$attrs', function ($attrs) {
 
         this.getType = function () {
           return $attrs.valdrType;
@@ -477,60 +647,63 @@ angular.module('valdr')
  */
 var valdrFormItemDirectiveDefinition =
   ['valdrEvents', 'valdr', 'valdrUtil', 'valdrClasses', function (valdrEvents, valdr, valdrUtil, valdrClasses) {
-  return  {
-    restrict: 'E',
-    require: ['?^valdrType', '?^ngModel'],
-    link: function (scope, element, attrs, controllers) {
+    return  {
+      restrict: 'E',
+      require: ['?^valdrType', '?^ngModel'],
+      link: function (scope, element, attrs, controllers) {
 
-      var valdrTypeController = controllers[0],
-        ngModelController = controllers[1],
-        fieldName = attrs.name,
-        parentElement = element.parent();
+        var valdrTypeController = controllers[0],
+          ngModelController = controllers[1],
+          fieldName = attrs.name,
+          formGroupElement;
 
-      // Stop right here if this is a form item that's either not inside of a valdr-type block
-      // or there is no ng-model bound to it.
-      if (!valdrTypeController || !ngModelController) {
-        return;
-      }
-
-      if (valdrUtil.isEmpty(fieldName)) {
-        throw new Error('form element is not bound to a field name');
-      }
-
-      var updateClassOnParentElement = function(valid) {
-        parentElement.addClass(valid ? valdrClasses.valid : valdrClasses.invalid);
-        parentElement.removeClass(valid ? valdrClasses.invalid :  valdrClasses.valid);
-      };
-
-      var updateNgModelController = function (validationResult) {
-        ngModelController.$setValidity('valdr', validationResult.valid);
-        ngModelController.valdrViolations = validationResult.violations;
-      };
-
-      var validate = function (value) {
-        var validationResult = valdr.validate(valdrTypeController.getType(), fieldName, value);
-        updateNgModelController(validationResult);
-        updateClassOnParentElement(validationResult.valid);
-        return validationResult.valid ? value : undefined;
-      };
-
-      ngModelController.$parsers.push(validate);
-      ngModelController.$formatters.push(validate);
-
-      scope.$on(valdrEvents.revalidate, function () {
-        validate(ngModelController.$viewValue);
-      });
-
-      element.bind('blur', function () {
-        if (ngModelController.$invalid && ngModelController.$dirty) {
-          parentElement.addClass(valdrClasses.dirtyBlurred);
+        // Stop right here if this is a form item that's either not inside of a valdr-type block
+        // or there is no ng-model bound to it.
+        if (!valdrTypeController || !ngModelController) {
+          return;
         }
-      });
-    }
-  };
-}];
+
+        if (valdrUtil.isEmpty(fieldName)) {
+          throw new Error('form element is not bound to a field name');
+        }
+
+        formGroupElement = valdrUtil.findWrappingFormGroup(element);
+
+        var updateClassOnFormGroup = function (valid) {
+          formGroupElement.toggleClass(valdrClasses.valid, valid);
+          formGroupElement.toggleClass(valdrClasses.invalid, !valid);
+        };
+
+        var updateNgModelController = function (validationResult) {
+          ngModelController.$setValidity('valdr', validationResult.valid);
+          ngModelController.valdrViolations = validationResult.violations;
+        };
+
+        var validate = function (value) {
+          var validationResult = valdr.validate(valdrTypeController.getType(), fieldName, value);
+          updateNgModelController(validationResult);
+          updateClassOnFormGroup(validationResult.valid);
+          return validationResult.valid ? value : undefined;
+        };
+
+        ngModelController.$parsers.push(validate);
+        ngModelController.$formatters.push(validate);
+
+        scope.$on(valdrEvents.revalidate, function () {
+          validate(ngModelController.$viewValue);
+        });
+
+        element.bind('blur', function () {
+          if (ngModelController.$invalid && ngModelController.$dirty) {
+            formGroupElement.addClass(valdrClasses.dirtyBlurred);
+          }
+        });
+      }
+    };
+  }];
 
 angular.module('valdr')
   .directive('input', valdrFormItemDirectiveDefinition)
-  .directive('select', valdrFormItemDirectiveDefinition);
+  .directive('select', valdrFormItemDirectiveDefinition)
+  .directive('textarea', valdrFormItemDirectiveDefinition);
 })(window, document);

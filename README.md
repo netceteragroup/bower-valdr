@@ -1,6 +1,6 @@
 # bower package for valdr
 
-> Validate your AngularJS models
+> A model centric approach to AngularJS form validation
 
 [valdr](https://github.com/netceteragroup/valdr)
 
