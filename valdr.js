@@ -1,5 +1,5 @@
 /**
- * valdr - v0.2.0 - 2014-06-04
+ * valdr - v1.0.0 - 2014-06-27
  * https://github.com/netceteragroup/valdr
  * Copyright (c) 2014 Netcetera AG
  * License: MIT
