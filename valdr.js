@@ -1,5 +1,5 @@
 /**
- * valdr - v1.0.0 - 2014-06-27
+ * valdr - v1.0.1 - 2014-07-16
  * https://github.com/netceteragroup/valdr
  * Copyright (c) 2014 Netcetera AG
  * License: MIT
@@ -690,7 +690,7 @@ var valdrFormItemDirectiveDefinition =
         ngModelController.$formatters.push(validate);
 
         scope.$on(valdrEvents.revalidate, function () {
-          validate(ngModelController.$viewValue);
+          validate(ngModelController.$modelValue);
         });
 
         element.bind('blur', function () {
