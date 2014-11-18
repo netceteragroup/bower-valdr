@@ -1,5 +1,5 @@
 /**
- * valdr - v1.0.1 - 2014-07-16
+ * valdr - v1.0.2 - 2014-11-18
  * https://github.com/netceteragroup/valdr
  * Copyright (c) 2014 Netcetera AG
  * License: MIT
@@ -23,7 +23,40 @@ angular.module('valdr')
  * Exposes utility functions used in validators and valdr core.
  */
   .factory('valdrUtil', ['valdrClasses', function (valdrClasses) {
+
+    var substringAfterDot = function (string) {
+      if (string.lastIndexOf('.') === -1) {
+        return string;
+      } else {
+        return string.substring(string.lastIndexOf('.') + 1, string.length);
+      }
+    };
+
+    var SLUG_CASE_REGEXP = /[A-Z]/g;
+    var slugCase = function (string) {
+      return string.replace(SLUG_CASE_REGEXP, function(letter, pos) {
+        return (pos ? '-' : '') + letter.toLowerCase();
+      });
+    };
+
+    /**
+     * Converts the given validator name to a validation token. Uses the last part of the validator name after the
+     * dot (if present) and converts camel case to slug case (fooBar -> foo-bar).
+     * @param validatorName the validator name
+     * @returns {string} the validation token
+     */
+    var validatorNameToToken = function (validatorName) {
+      if (angular.isString(validatorName)) {
+        var name = substringAfterDot(validatorName);
+        name = slugCase(name);
+        return 'valdr-' + name;
+      } else {
+        return validatorName;
+      }
+    };
+
     return {
+      validatorNameToToken: validatorNameToToken,
 
       isNaN: function (value) {
         // `NaN` as a primitive is the only value that is not equal to itself
@@ -575,6 +608,7 @@ angular.module('valdr')
               if (valdrUtil.has(typeConstraints, fieldName)) {
                 var fieldConstraints = typeConstraints[fieldName],
                   fieldIsValid = true,
+                  validationResults = [],
                   violations = [];
 
                 angular.forEach(fieldConstraints, function (constraint, validatorName) {
@@ -587,22 +621,26 @@ angular.module('valdr')
                   }
 
                   var valid = validator.validate(value, constraint);
+                  var validationResult = {
+                    valid: valid,
+                    value: value,
+                    field: fieldName,
+                    type: typeName,
+                    validator: validatorName
+                  };
+                  angular.extend(validationResult, constraint);
+
+                  validationResults.push(validationResult);
                   if (!valid) {
-                    var violation = {
-                      value: value,
-                      field: fieldName,
-                      type: typeName,
-                      validator: validatorName
-                    };
-                    angular.extend(violation, constraint);
-                    violations.push(violation);
+                    violations.push(validationResult);
                   }
                   fieldIsValid = fieldIsValid && valid;
                 });
 
                 return {
                   valid: fieldIsValid,
-                  violations: violations.length === 0 ? undefined : violations
+                  violations: violations.length === 0 ? undefined : violations,
+                  validationResults: validationResults.length === 0 ? undefined : validationResults
                 };
               } else {
                 return validResult;
@@ -643,7 +681,8 @@ angular.module('valdr')
 
 /**
  * This directive adds validation to all input and select fields which are bound to an ngModel and are surrounded
- * by a valdrType directive.
+ * by a valdrType directive. To prevent adding validation to specific fields, the attribute 'valdr-no-validate'
+ * can be added to those fields.
  */
 var valdrFormItemDirectiveDefinition =
   ['valdrEvents', 'valdr', 'valdrUtil', 'valdrClasses', function (valdrEvents, valdr, valdrUtil, valdrClasses) {
@@ -654,12 +693,17 @@ var valdrFormItemDirectiveDefinition =
 
         var valdrTypeController = controllers[0],
           ngModelController = controllers[1],
+          valdrNoValidate = attrs.valdrNoValidate,
           fieldName = attrs.name,
           formGroupElement;
 
-        // Stop right here if this is a form item that's either not inside of a valdr-type block
-        // or there is no ng-model bound to it.
-        if (!valdrTypeController || !ngModelController) {
+        /*
+         Stop right here :
+         - if this is an <input> that's not inside of a valdr-type block
+         - if there is no ng-model bound to input
+         - if there is 'valdr-no-validate' attribute present
+         */
+        if (!valdrTypeController || !ngModelController || angular.isDefined(valdrNoValidate)) {
           return;
         }
 
@@ -675,6 +719,10 @@ var valdrFormItemDirectiveDefinition =
         };
 
         var updateNgModelController = function (validationResult) {
+          angular.forEach(validationResult.validationResults, function (result) {
+            var validatorToken = valdrUtil.validatorNameToToken(result.validator);
+            ngModelController.$setValidity(validatorToken, result.valid);
+          });
           ngModelController.$setValidity('valdr', validationResult.valid);
           ngModelController.valdrViolations = validationResult.violations;
         };
