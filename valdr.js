@@ -1,5 +1,5 @@
 /**
- * valdr - v1.0.2 - 2014-11-18
+ * valdr - v1.1.0 - 2014-12-09
  * https://github.com/netceteragroup/valdr
  * Copyright (c) 2014 Netcetera AG
  * License: MIT
@@ -11,18 +11,25 @@ angular.module('valdr', ['ng'])
   .constant('valdrEvents', {
     'revalidate': 'valdr-revalidate'
   })
+  .value('valdrConfig', {
+    addFormGroupClass: true
+  })
   .value('valdrClasses', {
-    valid: 'has-success',
-    invalid: 'has-error',
-    dirtyBlurred: 'dirty-blurred',
-    formGroup: 'form-group'
+    formGroup: 'form-group',
+    valid: 'ng-valid',
+    invalid: 'ng-invalid',
+    dirty: 'ng-dirty',
+    pristine: 'ng-pristine',
+    touched: 'ng-touched',
+    untouched: 'ng-untouched',
+    invalidDirtyTouchedGroup: 'valdr-invalid-dirty-touched-group'
   });
 angular.module('valdr')
 
 /**
  * Exposes utility functions used in validators and valdr core.
  */
-  .factory('valdrUtil', ['valdrClasses', function (valdrClasses) {
+  .factory('valdrUtil', [function () {
 
     var substringAfterDot = function (string) {
       if (string.lastIndexOf('.') === -1) {
@@ -94,24 +101,6 @@ angular.module('valdr')
           return false;
         }
         return !this.notEmpty(value);
-      },
-
-      /**
-       * Finds the parent element with the class defined in valdrClasses.formGroup. Only searches 3 levels above
-       * the given element. If no element is found with this class, returns the parent of the given element.
-       * @param element the element
-       * @returns {*} the wrapping form group
-       */
-      findWrappingFormGroup: function (element) {
-        var parent = element.parent();
-        for (var i = 0; i < 3; i++) {
-          if (parent.hasClass(valdrClasses.formGroup)) {
-            return parent;
-          } else {
-            parent = parent.parent();
-          }
-        }
-        return element.parent();
       }
     };
   }])
@@ -218,7 +207,7 @@ angular.module('valdr')
   .factory('valdrEmailValidator', ['valdrUtil', function (valdrUtil) {
 
     // the e-mail pattern used in angular.js
-    var EMAIL_REGEXP = /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]+@[a-z0-9-]+(\.[a-z0-9-]+)*$/i;
+    var EMAIL_REGEXP = /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
 
     return {
       name: 'email',
@@ -261,12 +250,16 @@ angular.module('valdr')
 
   .factory('valdrDigitsValidator', ['valdrUtil', function (valdrUtil) {
 
-    var decimalSeparator = 1.1.toLocaleString().substring(1, 2); // jshint ignore:line
+    // matches everything except digits and '.' as decimal separator
+    var regexp = new RegExp('[^.\\d]', 'g');
 
-    var removeAnythingButDigitsAndDecimalSeparator = function (value) {
-      var regex = new RegExp('[^' + decimalSeparator + '\\d]', 'g');
-      // at this point 'value' can still be a number or a string or...
-      return value.toString().replace(regex, '');
+    /**
+     * By converting to number and back to string using toString(), we make sure that '.' is used as decimal separator
+     * and not the locale specific decimal separator.
+     * As we already checked for NaN at this point, we can do this safely.
+     */
+    var toStringWithoutThousandSeparators = function (value) {
+      return Number(value).toString().replace(regexp, '');
     };
 
     var isNotLongerThan = function (valueAsString, maxLengthConstraint) {
@@ -278,8 +271,8 @@ angular.module('valdr')
         fractionConstraint = constraint.fraction,
         cleanValueAsString, integerAndFraction;
 
-      cleanValueAsString = removeAnythingButDigitsAndDecimalSeparator(value);
-      integerAndFraction = cleanValueAsString.split(decimalSeparator);
+      cleanValueAsString = toStringWithoutThousandSeparators(value);
+      integerAndFraction = cleanValueAsString.split('.');
 
       return isNotLongerThan(integerAndFraction[0], integerConstraint) &&
         isNotLongerThan(integerAndFraction[1], fractionConstraint);
@@ -548,6 +541,18 @@ angular.module('valdr')
 
     this.addConstraints = addConstraints;
 
+    var removeConstraints = function (constraintNames) {
+      if (angular.isArray(constraintNames)) {
+        angular.forEach(constraintNames, function (name) {
+          delete constraints[name];
+        });
+      } else if (angular.isString(constraintNames)) {
+        delete constraints[constraintNames];
+      }
+    };
+
+    this.removeConstraints = removeConstraints;
+
     this.setConstraintUrl = function (url) {
       constraintUrl = url;
     };
@@ -556,8 +561,11 @@ angular.module('valdr')
       validatorNames.push(validatorName);
     };
 
-    this.addConstraintAlias = function (valdrName, customName) {
-      constraintAliases[valdrName] = customName;
+    this.addConstraintAlias = function (valdrName, alias) {
+      if(!angular.isArray(constraintAliases[valdrName])) {
+        constraintAliases[valdrName] = [];
+      }
+      constraintAliases[valdrName].push(alias);
     };
 
     this.$get =
@@ -567,8 +575,15 @@ angular.module('valdr')
           // inject all validators
           angular.forEach(validatorNames, function (validatorName) {
             var validator = $injector.get(validatorName);
-            var constraintName = constraintAliases[validator.name] || validator.name;
-            validators[constraintName] = validator;
+            validators[validator.name] = validator;
+
+            // register validator with aliases
+            if(angular.isArray(constraintAliases[validator.name])) {
+              angular.forEach(constraintAliases[validator.name], function (alias) {
+                validators[alias] = validator;
+              });
+            }
+
           });
 
           // load constraints via $http if constraintUrl is configured
@@ -650,6 +665,10 @@ angular.module('valdr')
               addConstraints(newConstraints);
               $rootScope.$broadcast(valdrEvents.revalidate);
             },
+            removeConstraints: function (constraintNames) {
+              removeConstraints(constraintNames);
+              $rootScope.$broadcast(valdrEvents.revalidate);
+            },
             getConstraints: function () {
               return constraints;
             },
@@ -660,6 +679,115 @@ angular.module('valdr')
           };
         }];
   });
+/**
+ * This directive adds the validity state to a form group element surrounding valdr validated input fields.
+ * If valdr-messages is loaded, it also adds the validation messages as last element to the element this this
+ * directive is applied on.
+ */
+var valdrFormGroupDirectiveDefinition =
+  ['valdrClasses', 'valdrConfig', function (valdrClasses, valdrConfig) {
+    return  {
+      restrict: 'EA',
+      link: function (scope, element) {
+        if (valdrConfig.addFormGroupClass) {
+          element.addClass(valdrClasses.formGroup);
+        }
+      },
+      controller: ['$scope', '$element', function ($scope, $element) {
+
+        var formItems = [],
+          messageElements = {};
+
+        /**
+         * Checks the state of all valdr validated form items below this element.
+         * @returns {Object} an object containing the states of all form items in this form group
+         */
+        var getFormGroupState = function () {
+
+          var formGroupState = {
+            // true if an item in this form group is currently dirty, touched and invalid
+            invalidDirtyTouchedGroup: false,
+            // true if all form items in this group are currently valid
+            valid: true,
+            // contains the validity states of all form items in this group
+            itemStates: []
+          };
+
+          angular.forEach(formItems, function (formItem) {
+            if (formItem.$touched && formItem.$dirty && formItem.$invalid) {
+              formGroupState.invalidDirtyTouchedGroup = true;
+            }
+
+            if (formItem.$invalid) {
+              formGroupState.valid = false;
+            }
+
+            var itemState = {
+              name: formItem.$name,
+              touched: formItem.$touched,
+              dirty: formItem.$dirty,
+              valid: formItem.$valid
+            };
+
+            formGroupState.itemStates.push(itemState);
+          });
+
+          return formGroupState;
+        };
+
+        /**
+         * Updates the classes on this element and the valdr message elements based on the validity states
+         * of the items in this form group.
+         * @param formGroupState the current state of this form group and its items
+         */
+        var updateClasses = function (formGroupState) {
+          // form group state
+          $element.toggleClass(valdrClasses.invalidDirtyTouchedGroup, formGroupState.invalidDirtyTouchedGroup);
+          $element.toggleClass(valdrClasses.valid, formGroupState.valid);
+          $element.toggleClass(valdrClasses.invalid, !formGroupState.valid);
+
+          // valdr message states
+          angular.forEach(formGroupState.itemStates, function (itemState) {
+            var messageElement = messageElements[itemState.name];
+            if (messageElement) {
+              messageElement.toggleClass(valdrClasses.valid, itemState.valid);
+              messageElement.toggleClass(valdrClasses.invalid, !itemState.valid);
+              messageElement.toggleClass(valdrClasses.dirty, itemState.dirty);
+              messageElement.toggleClass(valdrClasses.pristine, !itemState.dirty);
+              messageElement.toggleClass(valdrClasses.touched, itemState.touched);
+              messageElement.toggleClass(valdrClasses.untouched, !itemState.touched);
+            }
+          });
+        };
+
+        $scope.$watch(getFormGroupState, updateClasses, true);
+
+        this.addFormItem = function (ngModelController) {
+          formItems.push(ngModelController);
+        };
+
+        this.removeFormItem = function (ngModelController) {
+          var index = formItems.indexOf(ngModelController);
+          if (index >= 0) {
+            formItems.splice(index, 1);
+          }
+        };
+
+        this.addMessageElement = function (ngModelController, messageElement) {
+          $element.append(messageElement);
+          messageElements[ngModelController.$name] = messageElement;
+        };
+
+        this.removeMessageElement = function (ngModelController) {
+          messageElements[ngModelController.$name].remove();
+        };
+
+      }]
+    };
+  }];
+
+angular.module('valdr')
+  .directive('valdrFormGroup', valdrFormGroupDirectiveDefinition);
 angular.module('valdr')
 
 /**
@@ -685,67 +813,66 @@ angular.module('valdr')
  * can be added to those fields.
  */
 var valdrFormItemDirectiveDefinition =
-  ['valdrEvents', 'valdr', 'valdrUtil', 'valdrClasses', function (valdrEvents, valdr, valdrUtil, valdrClasses) {
+  ['valdrEvents', 'valdr', 'valdrUtil', 'valdrClasses', function (valdrEvents, valdr, valdrUtil) {
     return  {
       restrict: 'E',
-      require: ['?^valdrType', '?^ngModel'],
+      require: ['?^valdrType', '?^ngModel', '?^valdrFormGroup'],
       link: function (scope, element, attrs, controllers) {
 
         var valdrTypeController = controllers[0],
           ngModelController = controllers[1],
+          valdrFormGroupController = controllers[2],
           valdrNoValidate = attrs.valdrNoValidate,
-          fieldName = attrs.name,
-          formGroupElement;
+          fieldName = attrs.name;
 
-        /*
-         Stop right here :
-         - if this is an <input> that's not inside of a valdr-type block
-         - if there is no ng-model bound to input
-         - if there is 'valdr-no-validate' attribute present
+        /**
+         * Don't do anything if
+         * - this is an <input> that's not inside of a valdr-type block
+         * - there is no ng-model bound to input
+         * - there is the 'valdr-no-validate' attribute present
          */
         if (!valdrTypeController || !ngModelController || angular.isDefined(valdrNoValidate)) {
           return;
         }
 
-        if (valdrUtil.isEmpty(fieldName)) {
-          throw new Error('form element is not bound to a field name');
+        if (valdrFormGroupController) {
+          valdrFormGroupController.addFormItem(ngModelController);
         }
 
-        formGroupElement = valdrUtil.findWrappingFormGroup(element);
-
-        var updateClassOnFormGroup = function (valid) {
-          formGroupElement.toggleClass(valdrClasses.valid, valid);
-          formGroupElement.toggleClass(valdrClasses.invalid, !valid);
-        };
+        if (valdrUtil.isEmpty(fieldName)) {
+          throw new Error('Form element with ID "' + attrs.id + '" is not bound to a field name.');
+        }
 
         var updateNgModelController = function (validationResult) {
+          // set validity state for individual validators
           angular.forEach(validationResult.validationResults, function (result) {
             var validatorToken = valdrUtil.validatorNameToToken(result.validator);
             ngModelController.$setValidity(validatorToken, result.valid);
           });
+
+          // set overall validity state of this form item
           ngModelController.$setValidity('valdr', validationResult.valid);
           ngModelController.valdrViolations = validationResult.violations;
         };
 
-        var validate = function (value) {
-          var validationResult = valdr.validate(valdrTypeController.getType(), fieldName, value);
+        var validate = function (modelValue) {
+          var validationResult = valdr.validate(valdrTypeController.getType(), fieldName, modelValue);
           updateNgModelController(validationResult);
-          updateClassOnFormGroup(validationResult.valid);
-          return validationResult.valid ? value : undefined;
+          return validationResult.valid;
         };
 
-        ngModelController.$parsers.push(validate);
-        ngModelController.$formatters.push(validate);
+        ngModelController.$validators.valdr = validate;
 
         scope.$on(valdrEvents.revalidate, function () {
           validate(ngModelController.$modelValue);
         });
 
-        element.bind('blur', function () {
-          if (ngModelController.$invalid && ngModelController.$dirty) {
-            formGroupElement.addClass(valdrClasses.dirtyBlurred);
+        scope.$on('$destroy', function () {
+          if (valdrFormGroupController) {
+            valdrFormGroupController.removeFormItem(ngModelController);
           }
         });
+
       }
     };
   }];

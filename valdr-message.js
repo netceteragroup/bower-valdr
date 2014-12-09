@@ -14,8 +14,8 @@ angular.module('valdr')
       defaultTemplate =   '<div class="valdr-message">' +
                             '{{ violation.message }}' +
                           '</div>',
-      translateTemplate = '<div class="valdr-message">' +
-                            '<span ng-if="violation" ' +
+      translateTemplate = '<div class="valdr-message" ng-show="violation">' +
+                            '<span ' +
                             'translate="{{ violation.message }}" ' +
                             'translate-values="violation"></span>' +
                           '</div>';
@@ -76,37 +76,41 @@ angular.module('valdr')
  * is nested in a valdr-type directive and has an ng-model bound to it.
  * If the form element is wrapped in an element marked with the class defined in valdrClasses.formGroup,
  * the messages is appended to this element instead of the direct parent.
- * To prevent adding messages to specific input fields, the attribute 'no-valdr-message' can be added to those input
+ * To prevent adding messages to specific input fields, the attribute 'valdr-no-message' can be added to those input
  * or select fields. The valdr-message directive is used to do the actual rendering of the violation messages.
  */
-var valdrMessageDirectiveDefinition = ['$compile', 'valdrUtil', function ($compile, valdrUtil) {
+var valdrMessageDirectiveDefinition = ['$compile', 'valdrUtil', function ($compile) {
   return  {
     restrict: 'E',
-    require: ['?^valdrType', '?^ngModel'],
+    require: ['?^valdrType', '?^ngModel', '?^valdrFormGroup'],
     link: function (scope, element, attrs, controllers) {
 
       var valdrTypeController = controllers[0],
         ngModelController = controllers[1],
+        valdrFormGroupController = controllers[2],
         valdrNoValidate = attrs.valdrNoValidate,
+        valdrNoMessage = attrs.valdrNoMessage,
         fieldName = attrs.name;
 
-      /*
-       Stop right here :
-       - if this is an <input> that's not inside of a valdr-type block
-       - if there is no ng-model bound to input
-       - if there is 'valdr-no-validate' attribute present
+      /**
+       * Don't do anything if
+       * - this is an <input> that's not inside of a valdr-type or valdr-form-group block
+       * - there is no ng-model bound to input
+       * - there is a 'valdr-no-validate' or 'valdr-no-message' attribute present
        */
-      if (!valdrTypeController || !ngModelController || angular.isDefined(valdrNoValidate)) {
+      if (!valdrTypeController || !valdrFormGroupController || !ngModelController ||
+        angular.isDefined(valdrNoValidate) || angular.isDefined(valdrNoMessage)) {
         return;
       }
 
-      // Add violation message if there is no 'no-valdr-message' attribute on this input field.
-      if (angular.isUndefined(attrs.noValdrMessage)) {
-        var valdrMessageElement = angular.element('<span valdr-message="' + fieldName + '"></span>');
-        var formGroup = valdrUtil.findWrappingFormGroup(element);
-        formGroup.append(valdrMessageElement);
-        $compile(valdrMessageElement)(scope);
-      }
+      var valdrMessageElement = angular.element('<span valdr-message="' + fieldName + '"></span>');
+      $compile(valdrMessageElement)(scope);
+      valdrFormGroupController.addMessageElement(ngModelController, valdrMessageElement);
+
+      scope.$on('$destroy', function () {
+        valdrFormGroupController.removeMessageElement(ngModelController);
+      });
+
     }
   };
 }];
@@ -153,8 +157,8 @@ angular.module('valdr')
               scope.violation = valdrViolations[0];
               updateTranslations();
             } else {
-              scope.violation = undefined;
               scope.violations = undefined;
+              scope.violation = undefined;
             }
           });
 
