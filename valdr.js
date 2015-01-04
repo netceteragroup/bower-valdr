@@ -1,7 +1,7 @@
 /**
- * valdr - v1.1.0 - 2014-12-09
+ * valdr - v1.1.1 - 2015-01-04
  * https://github.com/netceteragroup/valdr
- * Copyright (c) 2014 Netcetera AG
+ * Copyright (c) 2015 Netcetera AG
  * License: MIT
  */
 (function (window, document) {
@@ -808,6 +808,21 @@ angular.module('valdr')
   });
 
 /**
+ * This controller is used if no valdrEnabled parent directive is available.
+ */
+var nullValdrEnabledController = {
+  isEnabled: function () { return true; }
+};
+
+/**
+ * This controller is used if no valdrFormGroup parent directive is available.
+ */
+var nullValdrFormGroupController = {
+  addFormItem: angular.noop,
+  removeFormItem: angular.noop
+};
+
+/**
  * This directive adds validation to all input and select fields which are bound to an ngModel and are surrounded
  * by a valdrType directive. To prevent adding validation to specific fields, the attribute 'valdr-no-validate'
  * can be added to those fields.
@@ -816,12 +831,13 @@ var valdrFormItemDirectiveDefinition =
   ['valdrEvents', 'valdr', 'valdrUtil', 'valdrClasses', function (valdrEvents, valdr, valdrUtil) {
     return  {
       restrict: 'E',
-      require: ['?^valdrType', '?^ngModel', '?^valdrFormGroup'],
+      require: ['?^valdrType', '?^ngModel', '?^valdrFormGroup', '?^valdrEnabled'],
       link: function (scope, element, attrs, controllers) {
 
         var valdrTypeController = controllers[0],
           ngModelController = controllers[1],
-          valdrFormGroupController = controllers[2],
+          valdrFormGroupController = controllers[2] || nullValdrFormGroupController,
+          valdrEnabled = controllers[3] || nullValdrEnabledController,
           valdrNoValidate = attrs.valdrNoValidate,
           fieldName = attrs.name;
 
@@ -835,30 +851,48 @@ var valdrFormItemDirectiveDefinition =
           return;
         }
 
-        if (valdrFormGroupController) {
-          valdrFormGroupController.addFormItem(ngModelController);
-        }
+        valdrFormGroupController.addFormItem(ngModelController);
 
         if (valdrUtil.isEmpty(fieldName)) {
           throw new Error('Form element with ID "' + attrs.id + '" is not bound to a field name.');
         }
 
         var updateNgModelController = function (validationResult) {
-          // set validity state for individual validators
-          angular.forEach(validationResult.validationResults, function (result) {
-            var validatorToken = valdrUtil.validatorNameToToken(result.validator);
-            ngModelController.$setValidity(validatorToken, result.valid);
-          });
 
-          // set overall validity state of this form item
-          ngModelController.$setValidity('valdr', validationResult.valid);
-          ngModelController.valdrViolations = validationResult.violations;
+          if (valdrEnabled.isEnabled()) {
+            var validatorTokens = ['valdr'];
+
+            // set validity state for individual valdr validators
+            angular.forEach(validationResult.validationResults, function (result) {
+              var validatorToken = valdrUtil.validatorNameToToken(result.validator);
+              ngModelController.$setValidity(validatorToken, result.valid);
+              validatorTokens.push(validatorToken);
+            });
+
+            // set overall validity state of this form item
+            ngModelController.$setValidity('valdr', validationResult.valid);
+            ngModelController.valdrViolations = validationResult.violations;
+
+            // remove errors for valdr validators which no longer exist
+            angular.forEach(ngModelController.$error, function (value, validatorToken) {
+              if (validatorTokens.indexOf(validatorToken) === -1 && validatorToken.lastIndexOf('valdr', 0) === 0) {
+                ngModelController.$setValidity(validatorToken, true);
+              }
+            });
+          } else {
+            angular.forEach(ngModelController.$error, function (value, validatorToken) {
+              if (validatorToken.lastIndexOf('valdr', 0) === 0) {
+                ngModelController.$setValidity(validatorToken, true);
+              }
+            });
+            ngModelController.valdrViolations = undefined;
+          }
         };
 
         var validate = function (modelValue) {
           var validationResult = valdr.validate(valdrTypeController.getType(), fieldName, modelValue);
           updateNgModelController(validationResult);
-          return validationResult.valid;
+          return valdrEnabled.isEnabled() ? validationResult.valid : true;
         };
 
         ngModelController.$validators.valdr = validate;
@@ -868,9 +902,7 @@ var valdrFormItemDirectiveDefinition =
         });
 
         scope.$on('$destroy', function () {
-          if (valdrFormGroupController) {
-            valdrFormGroupController.removeFormItem(ngModelController);
-          }
+          valdrFormGroupController.removeFormItem(ngModelController);
         });
 
       }
@@ -881,4 +913,34 @@ angular.module('valdr')
   .directive('input', valdrFormItemDirectiveDefinition)
   .directive('select', valdrFormItemDirectiveDefinition)
   .directive('textarea', valdrFormItemDirectiveDefinition);
+angular.module('valdr')
+
+/**
+ * This directive allows to dynamically enable and disable the validation with valdr.
+ * All form elements in a child node of an element with the 'valdr-enabled' directive will be affected by this.
+ *
+ * Usage:
+ *
+ * <div valdr-enabled="isValidationEnabled()">
+ *   <input type="text" name="name" ng-model="mymodel.field">
+ * </div>
+ *
+ * If multiple valdr-enabled directives are nested, the one nearest to the validated form element
+ * will take precedence.
+ */
+  .directive('valdrEnabled', ['valdrEvents', function (valdrEvents) {
+    return  {
+      controller: ['$scope', '$attrs', function($scope, $attrs) {
+        $scope.$watch($attrs.valdrEnabled, function () {
+          $scope.$broadcast(valdrEvents.revalidate);
+        });
+
+        this.isEnabled = function () {
+          var evaluatedExpression = $scope.$eval($attrs.valdrEnabled);
+          return evaluatedExpression === undefined ? true : evaluatedExpression;
+        };
+      }]
+    };
+  }]);
+
 })(window, document);

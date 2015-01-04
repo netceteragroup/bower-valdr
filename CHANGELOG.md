@@ -1,4 +1,8 @@
 # Changelog
+## 1.1.1 - 2015-01-04
+- introduce ```valdrEnabled``` directive to conditionally enable/disable validation, see [#54](https://github.com/netceteragroup/valdr/issues/54)
+- fix bug that after removing constraints from valdr with valdr.removeConstraints(), the validity state of previously validated form items was not reset. see [#55](https://github.com/netceteragroup/valdr/issues/55)
+
 ## 1.1.0 - 2014-12-09
 - added new valdrFormGroup directive which sets validity state for a group of form items and is responsible for adding and removing validation messages if valdr-message is loaded, see [#11](https://github.com/netceteragroup/valdr/issues/11), fixes [#44](https://github.com/netceteragroup/valdr/issues/44), fixes [#48](https://github.com/netceteragroup/valdr/issues/48)
 - support multiple aliases for constraint names, see [#30](https://github.com/netceteragroup/valdr/issues/30)
@@ -16,7 +20,7 @@ the next parent element with the ```valdr-form-group```directive (if present). T
 invalid, has been changed and the user blurred out of the form item. Besides that, if ```valdr-messages```
 is used to add validation messages, the ```valdr-form-group``` directive is the element in the DOM which adds and
 removes validation messages for all form items in the group.
-- the attribute ```no-valdr-message``` was renamed to ```no-valdr-message``` to disable message adding for individual
+- the attribute ```no-valdr-message``` was renamed to ```valdr-no-message``` to disable message adding for individual
 form items
 
 ## 1.0.2 - 2014-11-18
