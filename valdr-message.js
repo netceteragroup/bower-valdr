@@ -10,6 +10,7 @@ angular.module('valdr')
   .provider('valdrMessage', function () {
 
     var userDefinedTemplateUrl, userDefinedTemplate,
+      messages = {},
       defaultTemplateUrl = 'valdr/default-message.html',
       defaultTemplate =   '<div class="valdr-message">' +
                             '{{ violation.message }}' +
@@ -28,7 +29,20 @@ angular.module('valdr')
       userDefinedTemplateUrl = templateUrl;
     };
 
+    this.addMessages = function (newMessages) {
+      angular.extend(messages, newMessages);
+    };
+    var addMessages = this.addMessages;
+
+    this.getMessage = function (typeName, fieldName, validatorName) {
+      var fullMessageKey = typeName + '.' + fieldName + '.' + validatorName;
+      return messages[fullMessageKey] || messages[validatorName] || '[' + validatorName + ']';
+    };
+    var getMessage = this.getMessage;
+
     this.$get = ['$templateCache', '$injector', function ($templateCache, $injector) {
+
+      var angularMessagesEnabled = false;
 
       function getTranslateService() {
         try {
@@ -38,8 +52,19 @@ angular.module('valdr')
         }
       }
 
+      function getFieldNameKeyGenerator() {
+        try {
+          return $injector.get('valdrFieldNameKeyGenerator');
+        } catch (error) {
+          return function(violation) {
+            return violation.type + '.' + violation.field;
+          };
+        }
+      }
+
       var $translate = getTranslateService(),
-        translateAvailable = angular.isDefined($translate);
+        translateAvailable = angular.isDefined($translate),
+        fieldNameKeyGenerator = getFieldNameKeyGenerator();
 
       function determineTemplate() {
         if (angular.isDefined(userDefinedTemplate)) {
@@ -67,10 +92,15 @@ angular.module('valdr')
           updateTemplateCache();
         },
         translateAvailable: translateAvailable,
-        $translate: $translate
+        $translate: $translate,
+        fieldNameKeyGenerator: fieldNameKeyGenerator,
+        addMessages: addMessages,
+        getMessage: getMessage,
+        angularMessagesEnabled: angularMessagesEnabled
       };
     }];
   });
+
 /**
  * This directive appends a validation message to the parent element of any input, select or textarea element, which
  * is nested in a valdr-type directive and has an ng-model bound to it.
@@ -115,6 +145,11 @@ var valdrMessageDirectiveDefinition = ['$compile', 'valdrUtil', function ($compi
   };
 }];
 
+
+var nullValdrType = {
+  getType: angular.noop
+};
+
 angular.module('valdr')
   .directive('input', valdrMessageDirectiveDefinition)
   .directive('select', valdrMessageDirectiveDefinition)
@@ -125,7 +160,7 @@ angular.module('valdr')
  * is defined in the valdrMessage service where it can be overridden or a template URL can be configured.
  */
   .directive('valdrMessage',
-    ['$rootScope', '$injector', 'valdrMessage', function ($rootScope, $injector, valdrMessage) {
+    ['$rootScope', '$injector', 'valdrMessage', 'valdrUtil', function ($rootScope, $injector, valdrMessage, valdrUtil) {
       return {
         replace: true,
         restrict: 'A',
@@ -135,32 +170,74 @@ angular.module('valdr')
         templateUrl: function () {
           return valdrMessage.templateUrl;
         },
-        require: ['^form'],
-        link: function (scope, element, attrs, formController) {
+        require: ['^form', '?^valdrType'],
+        link: function (scope, element, attrs, controllers) {
+          var formController = controllers[0],
+            valdrTypeController = controllers[1] || nullValdrType;
 
           var updateTranslations = function () {
             if (valdrMessage.translateAvailable && angular.isArray(scope.violations)) {
               angular.forEach(scope.violations, function (violation) {
-                var fieldNameKey = violation.type + '.' + violation.field;
-                valdrMessage.$translate(fieldNameKey).then(function (translation) {
+                valdrMessage.$translate(valdrMessage.fieldNameKeyGenerator(violation)).then(function (translation) {
                   violation.fieldName = translation;
                 });
               });
             }
           };
 
-          scope.formField = formController[0][scope.formFieldName];
+          var createViolation = function (validatorName) {
+            var typeName = valdrTypeController.getType(),
+              fieldName = scope.formFieldName;
 
-          scope.$watch('formField.valdrViolations', function (valdrViolations) {
-            if (valdrViolations && valdrViolations.length) {
-              scope.violations = valdrViolations;
-              scope.violation = valdrViolations[0];
-              updateTranslations();
-            } else {
-              scope.violations = undefined;
-              scope.violation = undefined;
+            return {
+              type: typeName,
+              field: fieldName,
+              validator: validatorName,
+              message: valdrMessage.getMessage(typeName, fieldName, validatorName)
+            };
+          };
+
+          var addViolationsToScope = function () {
+            scope.violations = [];
+
+            angular.forEach(scope.formField.valdrViolations, function (violation) {
+              scope.violations.push(violation);
+            });
+
+            if (valdrMessage.angularMessagesEnabled) {
+              angular.forEach(scope.formField.$error, function (isValid, validatorName) {
+                if (!valdrUtil.startsWith(validatorName, 'valdr')) {
+                  scope.violations.push(createViolation(validatorName));
+                }
+              });
             }
-          });
+
+            scope.violation = scope.violations[0];
+            updateTranslations();
+          };
+          var removeViolationsFromScope = function () {
+            scope.violations = undefined;
+            scope.violation = undefined;
+          };
+
+          var watchFormFieldErrors = function () {
+            scope.formField = formController[scope.formFieldName];
+            if (scope.formField) {
+              return {
+                valdr: scope.formField.valdrViolations,
+                $error: scope.formField.$error
+              };
+            }
+          };
+
+
+          scope.$watch(watchFormFieldErrors, function () {
+            if (scope.formField && scope.formField.$invalid) {
+              addViolationsToScope();
+            } else {
+              removeViolationsFromScope();
+            }
+          }, true);
 
           $rootScope.$on('$translateChangeSuccess', function () {
             updateTranslations();

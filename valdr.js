@@ -1,5 +1,5 @@
 /**
- * valdr - v1.1.1 - 2015-01-04
+ * valdr - v1.1.2 - 2015-05-03
  * https://github.com/netceteragroup/valdr
  * Copyright (c) 2015 Netcetera AG
  * License: MIT
@@ -101,10 +101,24 @@ angular.module('valdr')
           return false;
         }
         return !this.notEmpty(value);
+      },
+
+      /**
+       * Checks if a string value starts with a given prefix.
+       *
+       * @param value the value
+       * @param prefix the prefix
+       * @returns {boolean} true if the given value starts with the given prefix.
+       */
+      startsWith: function (value, prefix) {
+        return angular.isString(value)  &&
+          angular.isString(prefix) &&
+          value.lastIndexOf(prefix, 0) === 0;
       }
     };
   }])
 ;
+
 angular.module('valdr')
 
   .factory('valdrRequiredValidator', ['valdrUtil', function (valdrUtil) {
@@ -875,13 +889,13 @@ var valdrFormItemDirectiveDefinition =
 
             // remove errors for valdr validators which no longer exist
             angular.forEach(ngModelController.$error, function (value, validatorToken) {
-              if (validatorTokens.indexOf(validatorToken) === -1 && validatorToken.lastIndexOf('valdr', 0) === 0) {
+              if (validatorTokens.indexOf(validatorToken) === -1 && valdrUtil.startsWith(validatorToken, 'valdr')) {
                 ngModelController.$setValidity(validatorToken, true);
               }
             });
           } else {
             angular.forEach(ngModelController.$error, function (value, validatorToken) {
-              if (validatorToken.lastIndexOf('valdr', 0) === 0) {
+              if (valdrUtil.startsWith(validatorToken, 'valdr')) {
                 ngModelController.$setValidity(validatorToken, true);
               }
             });
@@ -913,6 +927,7 @@ angular.module('valdr')
   .directive('input', valdrFormItemDirectiveDefinition)
   .directive('select', valdrFormItemDirectiveDefinition)
   .directive('textarea', valdrFormItemDirectiveDefinition);
+
 angular.module('valdr')
 
 /**
