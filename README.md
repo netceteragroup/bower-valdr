@@ -8,7 +8,12 @@
 
 #### [Bower](http://bower.io)
 
-```
+```bash
 bower install --save valdr
 ```
 
+#### [NPM](http://www.npmjs.com)
+
+```bash
+npm install valdr
+```
