@@ -1,5 +1,5 @@
 /**
- * valdr - v1.1.4 - 2015-08-11
+ * valdr - v1.1.5 - 2015-09-22
  * https://github.com/netceteragroup/valdr
  * Copyright (c) 2015 Netcetera AG
  * License: MIT
@@ -869,8 +869,8 @@ var valdrFormItemDirectiveDefinitionFactory = function (restrict) {
 
           valdrFormGroupController.addFormItem(ngModelController);
 
-          if (valdrUtil.isEmpty(fieldName)) {
-            throw new Error('Form element with ID "' + attrs.id + '" is not bound to a field name.');
+          if (valdrUtil.isEmpty(fieldName) && valdrEnabled.isEnabled()) {
+            console.warn('Form element with ID "' + attrs.id + '" is not bound to a field name.');
           }
 
           var updateNgModelController = function (validationResult) {
