@@ -1,7 +1,7 @@
 /**
- * valdr - v1.1.5 - 2015-09-22
+ * valdr - v1.1.6 - 2016-09-14
  * https://github.com/netceteragroup/valdr
- * Copyright (c) 2015 Netcetera AG
+ * Copyright (c) 2016 Netcetera AG
  * License: MIT
  */
 (function (window, document) {
@@ -87,6 +87,9 @@ angular.module('valdr')
        */
       notEmpty: function (value) {
         if (this.isNaN(value)) {
+          return false;
+        }
+        if (angular.isArray(value) && value.length === 0){
           return false;
         }
         return angular.isDefined(value) && value !== '' && value !== null;
@@ -194,7 +197,7 @@ angular.module('valdr')
 
 angular.module('valdr')
 
-  .factory('valdrSizeValidator', function () {
+  .factory('valdrSizeValidator', ['valdrUtil', function (valdrUtil) {
     return {
       name: 'size',
 
@@ -210,11 +213,16 @@ angular.module('valdr')
           maxLength = constraint.max;
 
         value = value || '';
+
+        if (valdrUtil.isEmpty(value)) {
+          return true;
+        }
+
         return value.length >= minLength &&
           (maxLength === undefined || value.length <= maxLength);
       }
     };
-  });
+  }]);
 
 angular.module('valdr')
 
@@ -447,7 +455,7 @@ angular.module('valdr')
         var minLength = constraint.number;
 
         if (valdrUtil.isEmpty(value)) {
-          return minLength === 0;
+          return true;
         }
 
         if (typeof value === 'string') {
@@ -793,7 +801,10 @@ var valdrFormGroupDirectiveDefinition =
         };
 
         this.removeMessageElement = function (ngModelController) {
-          messageElements[ngModelController.$name].remove();
+          if (messageElements[ngModelController.$name]) {
+            messageElements[ngModelController.$name].remove();
+            delete messageElements[ngModelController.$name];
+          }
         };
 
       }]
@@ -802,6 +813,7 @@ var valdrFormGroupDirectiveDefinition =
 
 angular.module('valdr')
   .directive('valdrFormGroup', valdrFormGroupDirectiveDefinition);
+
 angular.module('valdr')
 
 /**
